@@ -1,0 +1,264 @@
+#!/bin/env bash
+# Script for activating an MkDocs instance with mkdocs-material
+# in a Python virtual environment for markdown documentation development.
+
+# Check if the script is sourced or executed
+sourced_or_executed() {
+    if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+        printf "\\n"
+        printf "  This script must be sourced, not executed directly.\\n"
+        printf "  use 'source run' to recall the script, not './run'\\n"
+        printf "\\n"
+        exit 1
+    fi
+}
+# Function to check if Python version is greater than 3
+check_python_version() {
+    printf "\\n"
+    python_version=$(python3 --version 2>/dev/null)
+    local python_installed=$?
+    if [ $python_installed -ne 0 ]; then
+        printf "  ERROR: Python 3 is not installed.\\n"
+        exit 1
+    fi
+    # Extract the major version number
+    major_version=$(echo "$python_version" | awk '{print $2}' | cut -d '.' -f 1)
+    if [ "$major_version" -lt 3 ]; then # Check if version is greater than 3
+        printf "  ERROR: Installed Python version is less than 3.\\n"
+        exit 1
+    fi
+    # print Python version
+    printf "  Installed Python version: %s\\n" "$python_version"
+}
+
+# Function to check if .venv directory exists
+check_venv_directory() {
+    if [ -d ".venv" ]; then
+        return 0 # exists
+    else
+        return 1 # not exist
+    fi
+}
+
+# Function to activate the virtual environment
+activate_venv() {
+    if check_venv_directory; then
+        source .venv/bin/activate
+        printf "\\n"
+        printf "  Activated the virtual environment.\\n"
+    else
+        printf "\\n"
+        printf "  ERROR: .venv directory does not exist.\\n"
+        printf "  Create a new virtual environment first\\n"
+        menu
+    fi
+}
+
+# Function to deactivate the virtual environment if active
+deactivate_venv() {
+    if [[ "$VIRTUAL_ENV" != "" ]]; then # check system variable
+        deactivate
+        printf "  Deactivated the virtual environment.\\n"
+    else
+        printf "  No virtual environment is currently active.\\n"
+    fi
+}
+
+# Function to display Python version and .venv status
+display_status() {
+    check_python_version
+    check_venv_directory
+    local venv_status=$?
+    if [ "$venv_status" -eq 0 ]; then
+        printf "  Virtual environment exists.\\n"
+    else
+        printf "  Virtual environment is missing.\\n"
+    fi
+}
+
+# Function to create a virtual environment
+create_venv() {
+    if check_venv_directory; then
+        printf "\\n"
+        printf "  WARNING: .venv directory already exists.\\n"
+        printf "  Remove the '.venv' folder to proceed with the creation\\n  of a new virtual environment\\n"
+        menu # Return to the menu if .venv exists
+        return
+    fi
+    printf "\\n"
+    printf "  Creating a new virtual environment...\\n"
+    python3 -m venv .venv
+    local venv_created=$?
+    if [ $venv_created -eq 0 ]; then
+        printf "  Virtual environment created successfully.\\n"
+        deactivate_venv # Deactivate the virtual environment after creation
+        menu
+    else
+        printf "  ERROR: Failed to create a virtual environment.\\n"
+        exit 1
+    fi
+}
+
+# Function to create a symbolic link pointing to an external folder
+create_symlink() {
+    printf "\\n"
+    printf "  NOTE:\\n  Variables to expand the home folder ( '~' and '\$HOME')\\n  are not supported\\n"
+    printf "\\n"
+    cd docs || return
+    read -e -r -p "  Enter the path of the external folder to link: " external_folder
+    # Check if the path contains '~' or '$HOME'
+    if [[ "$external_folder" == *"~"* || "$external_folder" == *"\$HOME"* ]]; then
+        printf "\\n"
+        printf "  ERROR: The path cannot contain '~' or '\$HOME'.\\n  Please provide an absolute path.\\n"
+        cd ..
+        menu
+        return
+    fi
+    if [ ! -d "$external_folder" ]; then
+        printf "  ERROR: The specified folder does not exist: %s\\n" "$external_folder"
+        cd ..
+        menu
+        return
+    fi
+    if [ -L "docs" ]; then # remove old symbolic link
+        rm "docs"
+        printf "  Removed old symbolic link 'docs'.\\n"
+    fi
+    ln -s "$external_folder" "docs" # create symbolic link
+    local docs_linked=$?
+
+    if [ $docs_linked -eq 0 ]; then
+        printf "  Symbolic link 'docs' created pointing to '%s'.\\n" "$external_folder"
+    else
+        printf "  ERROR: Failed to create symbolic link.\\n"
+    fi
+    cd ..
+    menu
+}
+
+# Function to list the current path linked to docs
+
+list_docs_path() {
+    if [ -d "docs/docs" ]; then
+        printf "\\n  Current path linked to docs:\\n"
+        printf "  "
+        find "docs/docs" -type l -exec ls -l {} \; | awk '{print $NF}'
+    else
+        printf "  No 'docs' directory found in the current path."
+    fi
+    menu
+}
+# Function to check if mkdocs-material is installed in the virtual environment
+check_mkdocs_material_installed() {
+    pip show mkdocs-material &>/dev/null # 'pip show' return 0 if installed
+    return $?
+}
+
+# Function to check and upgrade pip
+check_and_upgrade_pip() {
+    # Check the current version of pip
+    current_version=$(pip --version | awk '{print $2}')
+    # Get the latest version of pip from PyPI
+    latest_version=$(curl -s https://pypi.org/pypi/pip/json | jq -r '.releases | keys | .[-1]')
+    if [ "$current_version" != "$latest_version" ]; then # Compare versions
+        printf "  An upgrade for pip is available. Upgrading pip from %s to %s...\\n" "$current_version" "$latest_version"
+        pip install --upgrade pip
+        local pip_upgraded=$?
+        if [ $pip_upgraded -eq 0 ]; then
+            printf "  pip upgraded successfully to version %s.\\n" "$(pip --version | awk '{print $2}')"
+        else
+            printf "  ERROR: Failed to upgrade pip.\\n"
+            return 1
+        fi
+    else
+        printf "  pip is already up to date (version %s).\\n" "$current_version"
+    fi
+}
+
+# Function to install mkdocs-material
+install_mkdocs_material() {
+    activate_venv # activate the virtual environment first
+    local venv_activated=$?
+    if [ $venv_activated -ne 0 ]; then
+        return 1
+    fi
+    # Check if mkdocs-material is already installed
+    if check_mkdocs_material_installed; then
+        printf "  RockyDocs environment is already installed.\\n"
+        deactivate_venv
+        menu
+    fi
+    # Check and upgrade pip before installation
+    check_and_upgrade_pip
+    # Install RockyDocs environment
+    printf "  Installing RockyDocs environment...\\n"
+    pip install -r requirements.txt
+    local material_installed=$?
+    if [ $material_installed -eq 0 ]; then
+        clear
+        printf "\\n"
+        printf "  RockyDocs environment installed successfully.\\n"
+        deactivate_venv
+    else
+        printf "  ERROR: Failed to install RockyDocs environment.\\n"
+        return 1
+    fi
+    menu # recall the menu after installation
+}
+
+# Function to activate the virtual environment and run mkdocs serve
+activate_and_run_mkdocs() {
+    activate_venv
+    printf "  Starting RockyDocs environment...\\n" # run mkdocs serve
+    mkdocs serve
+    deactivate_venv
+    menu
+}
+
+# Main menu
+menu() {
+    printf "\\n"
+    printf "  Select an option:\\n"
+    printf "\\t1. Create a new virtual environment\\n"
+    printf "\\t2. Install RockyDocs environment\\n"
+    printf "\\t3. Create a symbolic link to an external docs folder\\n"
+    printf "\\t4. List the current path linked to docs\\n"
+    printf "\\t5. Run RockyDocs environment\\n"
+    printf "\\t6. Exit\\n"
+
+    read -r -p "  Enter your choice [1-6]: " choice
+
+    case $choice in
+    1)
+        create_venv
+        ;;
+    2)
+        install_mkdocs_material
+        ;;
+    3)
+        create_symlink
+        ;;
+    4)
+        list_docs_path
+        ;;
+    5)
+        activate_and_run_mkdocs
+
+        ;;
+    6)
+        deactivate_venv
+        printf "Exiting the script.\\n"
+        exit 0
+        ;;
+    *)
+        printf "Invalid choice. Please select 1, 2, 3, 4, 5, or 6.\\n"
+        menu # Call menu again for invalid input
+        ;;
+    esac
+}
+
+# Main script execution
+clear
+sourced_or_executed
+display_status
+menu
