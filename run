@@ -3,8 +3,12 @@
 # in a Python virtual environment for markdown documentation development.
 
 # Check if the script is sourced or executed
+# ${BASH_SOURCE[0]}: This holds the filename of the current script
+# ${0}: This holds the name of the script that was invoked on the command line
 sourced_or_executed() {
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+        # If the two variables are equal, it means the script
+        # is being executed directly (not sourced)
         printf "\\n"
         printf "  This script must be sourced, not executed directly.\\n"
         printf "  use 'source run' to recall the script, not './run'\\n"
@@ -12,22 +16,28 @@ sourced_or_executed() {
         exit 1
     fi
 }
-# Function to check if Python version is greater than 3
+
+# Function to check if Python version is greater than 3.4
 check_python_version() {
     printf "\\n"
+    # Python 3 version to the variable
     python_version=$(python3 --version 2>/dev/null)
     local python_installed=$?
     if [ $python_installed -ne 0 ]; then
         printf "  ERROR: Python 3 is not installed.\\n"
         exit 1
     fi
-    # Extract the major version number
-    major_version=$(echo "$python_version" | awk '{print $2}' | cut -d '.' -f 1)
-    if [ "$major_version" -lt 3 ]; then # Check if version is greater than 3
-        printf "  ERROR: Installed Python version is less than 3.\\n"
+    # Extract the full version number
+    full_version=$(echo "$python_version" | awk '{print $2}')
+    # Extract major and minor version numbers
+    major_version=$(echo "$full_version" | cut -d '.' -f 1)
+    minor_version=$(echo "$full_version" | cut -d '.' -f 2)
+    # Check if version is greater than 3.4
+    if [ "$major_version" -lt 3 ] || { [ "$major_version" -eq 3 ] && [ "$minor_version" -lt 4 ]; }; then
+        printf "  ERROR: Installed Python version is less than 3.4.\\n"
         exit 1
     fi
-    # print Python version
+    # Print Python version
     printf "  Installed Python version: %s\\n" "$python_version"
 }
 
@@ -114,7 +124,7 @@ create_symlink() {
         menu
         return
     fi
-    if [ ! -d "$external_folder" ]; then
+    if [ ! -d "$external_folder" ]; then # Check external folder presence
         printf "  ERROR: The specified folder does not exist: %s\\n" "$external_folder"
         cd ..
         menu
@@ -137,11 +147,13 @@ create_symlink() {
 }
 
 # Function to list the current path linked to docs
-
 list_docs_path() {
     if [ -d "docs/docs" ]; then
         printf "\\n  Current path linked to docs:\\n"
         printf "  "
+        # Search for symlinks in the docs/docs directory 'find'
+        # get detailed information about it 'ls -l'
+        # extracts and prints the target file 'awk'
         find "docs/docs" -type l -exec ls -l {} \; | awk '{print $NF}'
     else
         printf "  No 'docs' directory found in the current path."
